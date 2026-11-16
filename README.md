@@ -23,6 +23,7 @@ Sidecove is an independent project, not affiliated with or endorsed by The Brows
 - Multi-select with Cmd or Ctrl click and Shift click to move, pin, archive, close or file several tabs at once
 - Search open tabs and favorites across spaces (Cmd or Ctrl+F)
 - One list across windows: each window's sidebar shows the open tabs of all your windows, one entry per page, and whatever you choose opens in the window you are in (on by default; turn it off at **Settings → Show tabs and favorites from all windows**). Each window keeps its own space. The top-bar favorites are a saved list shown in every window: one with no tab in a window shows dimmed there, loads nothing until you pick it, and stays when you close its tab. Unpin it, or right-click a dimmed one and choose Remove from Favorites, to remove it everywhere.
+- Back, forward and reload buttons at the top of the sidebar, acting on the tab you are looking at (Shift-click reload skips the cache). Command-[, Command-] and Command-R (Alt+Left, Alt+Right and Ctrl+R on Windows and Linux) do the same while the sidebar has focus. Hide the buttons at **Settings → Show back, forward and reload buttons**.
 - Keyboard and mouse side-button space switching
 - A shortcut for the most recently used tab in the current space, like Arc's Ctrl+Tab (assign a key at `chrome://extensions/shortcuts`; Chrome keeps Ctrl+Tab for itself)
 - A new tab you leave empty closes by itself, as in Arc (turn it off at **Settings → Close new tabs you leave empty**)
