@@ -84,6 +84,22 @@ export default [
         languageOptions: { globals: { ...globals.browser, ...globals.serviceworker, ...globals.webextensions } }
     },
     {
+        // One rule places every submenu (position-submenu.js). A menu file that measures its own
+        // submenu would bring back a second rule that can clip at the panel's edge.
+        files: ['src/sidebar/features/context-menu/**/*.js'],
+        ignores: ['src/sidebar/features/context-menu/position-submenu.js'],
+        rules: {
+            'no-restricted-properties': [
+                'error',
+                {
+                    property: 'getBoundingClientRect',
+                    message:
+                        'Place submenus with positionSubmenu() from position-submenu.js instead of measuring them here.'
+                }
+            ]
+        }
+    },
+    {
         files: ['*.js', 'scripts/**/*.js', 'tests/**/*.js'],
         languageOptions: { globals: { ...globals.node } }
     },

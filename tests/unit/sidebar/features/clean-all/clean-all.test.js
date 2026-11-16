@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     archiveTabs,
+    clearableTabs,
     clearTabs,
     stepOffClearedTabs,
     undoClear,
@@ -198,4 +199,17 @@ test('closing selected tabs still reopens them in order in their space', async (
         ['create', { url: 'https://c.example/', active: false, windowId: 7 }],
         ['assign', 101, 'home']
     ]);
+});
+
+test('Clear leaves untouched New Tabs out, whatever they are still loading', () => {
+    const tabs = [
+        { id: 1, url: 'chrome://newtab/' },
+        { id: 2, url: '', pendingUrl: 'chrome://new-tab-page/' },
+        { id: 3, url: 'https://example.com/' },
+        { id: 4, url: 'chrome://newtab/', pendingUrl: 'https://example.com/next' }
+    ];
+    assert.deepEqual(
+        clearableTabs(tabs).map(tab => tab.id),
+        [3, 4]
+    );
 });

@@ -11,6 +11,7 @@ import {
 import { trackAllWindowsSetting } from './features/all-windows/all-windows-setting.js';
 import { markOtherWindowRow } from './features/all-windows/other-window-mark.js';
 import { createOpenHere } from './features/all-windows/open-here.js';
+import { moveToSpaceEntries } from './features/context-menu/space-menu-entries.js';
 import { otherWindowMenuActions, otherWindowMenuEntries } from './features/all-windows/other-window-menu.js';
 import {
     getSpaceBookmarkById,
@@ -57,6 +58,7 @@ import { ownerOf } from '../shared/space-store.js';
 import { canCreateFolder, canMoveFolder, createFolder } from './folder-policy.js';
 import {
     clearTabs,
+    clearableTabs,
     undoClear,
     reopenClosedTabs,
     startPendingClean,
@@ -2653,6 +2655,9 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer) {
     const tabs = await getListedTabs(space.id);
     // A pinned tab binds to its bookmark in its own window only.
     const ownTabs = tabs.filter(t => !isOtherWindow(t, currentWindow.id));
+    // Nothing to clear but untouched New Tabs: the button would only archive an empty page.
+    const clearButton = pinnedContainer.closest('.space')?.querySelector('.clean-tabs-btn');
+    if (clearButton) clearButton.hidden = !clearableTabs(ownTabs).length;
     const pinnedStatesById = await Utils.getPinnedTabStates();
     const pinnedFragment = document.createDocumentFragment();
     let treeAvailable = true;
@@ -3900,16 +3905,15 @@ function showBulkMenu(x, y, elements) {
         ...(temporary ? [{ label: `Pin ${plural(temporary)}`, action: () => pinItems(items) }] : []),
         {
             label: 'Move to Space',
-            submenu: spaces
-                .filter(s => s.id !== activeSpaceId)
-                .map(space => ({
-                    label: space.name,
-                    action: async () => {
-                        await moveItemsToSpace(items, space.id);
-                        clearSelection();
-                        flashSpaceChip(space.id);
-                    }
-                }))
+            submenu: moveToSpaceEntries({
+                spaces,
+                currentSpaceId: activeSpaceId,
+                onMove: async space => {
+                    await moveItemsToSpace(items, space.id);
+                    clearSelection();
+                    flashSpaceChip(space.id);
+                }
+            })
         },
         'separator',
         ...(temporary ? [{ label: `Archive ${plural(temporary)}`, action: () => archiveItems(items) }] : []),
@@ -4066,7 +4070,9 @@ async function cleanTemporaryTabs(spaceId) {
     const protectedIds = new Set(space.spaceBookmarks);
     const favoriteUrlKeys = await getSpaceFavoriteUrlKeys(space);
     const bindings = await Utils.getPinnedTabStates();
-    const closable = ownedTabs.filter(t => !isProtectedFavorite(t, protectedIds, bindings, favoriteUrlKeys));
+    const closable = clearableTabs(
+        ownedTabs.filter(t => !isProtectedFavorite(t, protectedIds, bindings, favoriteUrlKeys))
+    );
 
     if (!closable.length) return;
 
