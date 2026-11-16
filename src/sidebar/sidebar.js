@@ -112,6 +112,9 @@ import { displayedTabIds } from './features/close-tab/displayed-tabs.js';
 import { restoreAfterPick } from './features/close-tab/restore-after-pick.js';
 import { createClearedTabs } from './features/clean-all/restore-cleared-tab.js';
 import { createTabActivationHandler } from './features/tab-activation/tab-activation.js';
+import { createSplitView } from './features/split-view/split-view.js';
+import { placeNextTo } from './features/split-view/split-logic.js';
+import { markSplitMember, markSplitRows, splitRowsOf } from './features/split-view/split-rows.js';
 import { BookmarkUtils } from '../shared/bookmark-utils.js';
 import { Logger } from '../shared/logger.js';
 import { MOUSE_BUTTON, CSS_CLASSES, TIMING } from '../shared/constants.js';
@@ -434,6 +437,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         closeFocus.trackTab(tab);
         handleTabUpdate(tabId, changeInfo, tab);
+        if (changeInfo.splitViewId !== undefined) scheduleListRedraw(50);
         if (tab.pinned || changeInfo.pinned !== undefined) updatePinnedFavicons(); // Update favicons when a tab is pinned/unpinned
     });
     chrome.tabs.onRemoved.addListener(handleTabRemove);
@@ -2190,6 +2194,7 @@ async function handleOrderChangeAfterDrop(container) {
         const tempIdsChromeOrder = invertTabOrder ? [...tempIdsDisplayOrder].reverse() : tempIdsDisplayOrder;
         // Preserve any non-rendered temp ids (should be rare), append to end.
         space.temporaryTabs = mergeVisibleOrder(space.temporaryTabs ?? [], tempIdsChromeOrder);
+        splitView.separateTornPairs(splitRowsOf(container));
     } else if (tabType === 'pinned') {
         // DOM order is display order. Canonical storage is extension order.
         const pinnedIdsDisplayOrder = getFlattenedPinnedSectionTabIds(spaceElement);
@@ -2891,6 +2896,7 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer) {
     });
     pinnedContainer.appendChild(pinnedFragment);
     tempContainer.appendChild(tempFragment);
+    if (splitView.supported) markSplitRows(tempContainer, tabId => splitView.separate(tabId));
     const spaceElement = pinnedContainer.closest('.space');
     if (spaceElement) spaceElement.dataset.bookmarkTreeUnavailable = treeAvailable ? 'false' : 'true';
     return true;
@@ -3009,6 +3015,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
         if (tab.bookmarkId) tabElement.dataset.bookmarkId = tab.bookmarkId;
     } else {
         tabElement.dataset.tabId = tab.id;
+        markSplitMember(tabElement, tab);
         // A tab that is still loading has only a pending URL; its update event may already
         // have passed by the time this row exists.
         tabElement.dataset.url = tab.url || tab.pendingUrl || '';
@@ -3463,14 +3470,15 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
             ? null
             : () => tabDetails.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
         // Read the live mute state alongside the space folders so the menu opens no later.
-        const [muted, allBookmarkSpaceFolders] = await Promise.all([
+        const [muted, allBookmarkSpaceFolders, splitEntries] = await Promise.all([
             isBookmarkOnly || !tab.id
                 ? false
                 : chrome.tabs.get(tab.id).then(
                       live => Boolean(live.mutedInfo?.muted),
                       () => false
                   ),
-            otherWindow ? [] : listSpaceFoldersWithIcons()
+            otherWindow ? [] : listSpaceFoldersWithIcons(),
+            otherWindow || isPinned || isBookmarkOnly ? [] : splitView.tabEntries(tab.id)
         ]);
         if (otherWindow) {
             const entries = otherWindowMenuEntries({
@@ -3505,7 +3513,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
             createSpaceFromInactive,
             replaceBookmarkUrlWithCurrentUrl,
             moveFavoriteToSpace,
-            { muted, onRename }
+            { muted, onRename, splitEntries }
         );
     });
 
@@ -3907,17 +3915,21 @@ async function pinItems(items) {
     });
 }
 
-function showBulkMenu(x, y, elements) {
+async function showBulkMenu(x, y, elements) {
     // Snapshot now: the menu stays open while the rows may re-render.
     const items = elements.map(describeItem);
     const count = items.length;
     const temporary = items.filter(item => item.kind === 'tab' && item.tabId).length;
     const live = items.filter(item => item.tabId).length;
     const plural = n => `${n} ${n === 1 ? 'Tab' : 'Tabs'}`;
+    const splitEntries = items.every(item => item.kind === 'tab' && item.tabId)
+        ? await splitView.bulkEntries(items.map(item => item.tabId))
+        : [];
     showMenu(x, y, [
         { label: `${count} selected`, note: true },
         { label: `New Folder with ${plural(count)}`, action: () => createFolderFromItems(items) },
         ...(temporary ? [{ label: `Pin ${plural(temporary)}`, action: () => pinItems(items) }] : []),
+        ...splitEntries,
         {
             label: 'Move to Space',
             submenu: moveToSpaceEntries({
@@ -4318,6 +4330,24 @@ const closeFocus = createCloseFocus({
             windowId: currentWindow.id,
             shownSpaceId: activeSpaceId
         }).catch(error => Logger.warn('Could not restore the space after a close:', error))
+});
+
+// Two tabs side by side, using Chrome's own split view where Chrome has it.
+const splitView = createSplitView({
+    chromeApi: chrome,
+    runMutation: runSpaceMutation,
+    listedTabIds: () => getTempSectionTabIds(getSpaceElement(activeSpaceId)),
+    titleOf: tabId => document.querySelector(`.tab[data-tab-id="${tabId}"] .tab-title-display`)?.textContent,
+    placeAfter: async (anchorId, movedId) => {
+        const space = spaces.find(s => s.id === activeSpaceId);
+        if (!space) return;
+        space.temporaryTabs = placeNextTo(space.temporaryTabs, anchorId, movedId);
+        await persistSpaceTabOrder(space.id);
+    },
+    adoptNewTab: async tab => {
+        await spaceRequest('assign', { tabId: tab.id, spaceId: activeSpaceId });
+        await adoptStoredSpaces(await spaceRequest('get'));
+    }
 });
 
 // Tabs Clear is hiding come back one at a time when picked in Chrome's own tab strip.
