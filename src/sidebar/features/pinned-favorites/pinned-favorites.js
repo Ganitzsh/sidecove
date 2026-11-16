@@ -2,7 +2,7 @@ import { spaceRequest } from '../../../shared/space-client.js';
 import { Utils } from '../../../shared/utils.js';
 import { Logger } from '../../../shared/logger.js';
 import { MOUSE_BUTTON } from '../../../shared/constants.js';
-import { isOtherWindow, selectFavoriteTabs } from '../all-windows/all-windows.js';
+import { isOtherWindow, selectFavoriteTabs } from '../../../shared/all-windows.js';
 import { markOtherWindowFavicon } from '../all-windows/other-window-mark.js';
 import { createOpenHere } from '../all-windows/open-here.js';
 import { ALL_WINDOWS_SETTING, FAVORITE_TABS_KEY, SAVED_FAVORITES_KEY } from '../../../shared/saved-favorites.js';

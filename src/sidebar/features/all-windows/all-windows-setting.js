@@ -1,4 +1,4 @@
-import { ALL_WINDOWS_SETTING } from './all-windows.js';
+import { ALL_WINDOWS_SETTING } from '../../../shared/all-windows.js';
 
 // Tab events are handled synchronously, so the panel keeps the setting's value at hand. It is
 // on unless turned off, including for people upgrading, who have never saved it.

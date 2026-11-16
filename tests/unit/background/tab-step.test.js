@@ -56,3 +56,97 @@ test('does nothing when the active tab has no space or the window has no active 
     const none = setup({ activeId: 99 });
     assert.equal(await press(none, 'next'), null);
 });
+
+// Tabs from all windows on: the walk is the panel's list, other windows' tabs included.
+function multiWindow({ activeId, state = {} }) {
+    const updates = [];
+    const created = [];
+    const tabs = [
+        { id: 8, windowId: 5, index: 0, pinned: true, url: 'https://pin-a.test/' },
+        { id: 20, windowId: 6, index: 0, pinned: true, url: 'https://other-pin.test/' },
+        { id: 1, windowId: 5, index: 1, url: 'https://one.test/' },
+        { id: 2, windowId: 6, index: 1, url: 'https://two.test/' },
+        { id: 3, windowId: 5, index: 2, url: 'https://three.test/' },
+        { id: 4, windowId: 6, index: 2, url: 'https://one.test/' }, // same page as 1: one entry
+        { id: 10, windowId: 5, index: 3, url: 'https://work.test/' }
+    ].map(tab => ({ ...tab, active: tab.id === activeId }));
+    const chromeApi = {
+        windows: { getLastFocused: async () => ({ id: 5 }) },
+        tabs: {
+            query: async ({ windowId } = {}) => tabs.filter(tab => windowId === undefined || tab.windowId === windowId),
+            update: async id => updates.push(id),
+            create: async properties => {
+                created.push(properties);
+                return { id: 99 };
+            }
+        }
+    };
+    const readState = async () => ({
+        spaces: [
+            { id: 'home', spaceBookmarks: [], temporaryTabs: [1, 2, 3, 4], pinnedTabs: [8, 20] },
+            { id: 'work', spaceBookmarks: [], temporaryTabs: [10], pinnedTabs: [] }
+        ],
+        activeSpaces: { 5: 'home' },
+        perSpaceFavorites: false,
+        invertTabOrder: false,
+        allWindows: true,
+        ...state
+    });
+    return { chromeApi, readState, updates, created, recentOpens: new Map() };
+}
+
+test('with tabs from all windows, the walk is the panel’s list and a tab in another window opens here', async () => {
+    const context = multiWindow({ activeId: 1 });
+    // Panel order: pins 8 and 20, then 1, 2, 3 (tab 4 repeats tab 1's page and is not listed).
+    assert.equal(await press(context, 'next'), 99);
+    assert.deepEqual(context.created, [{ windowId: 5, url: 'https://two.test/', pinned: false, active: true }]);
+    assert.deepEqual(context.updates, []);
+    const here = multiWindow({ activeId: 3 });
+    assert.equal(await press(here, 'next'), 8, 'wraps to a tab of this window, which is switched to');
+    assert.deepEqual(here.updates, [8]);
+});
+
+test('with tabs from all windows, the pins of other windows are walked too', async () => {
+    const context = multiWindow({ activeId: 8 });
+    assert.equal(await press(context, 'next'), 99);
+    assert.deepEqual(context.created, [{ windowId: 5, url: 'https://other-pin.test/', pinned: true, active: true }]);
+});
+
+test('with tabs from all windows off, other windows’ tabs are not walked', async () => {
+    const context = multiWindow({ activeId: 8, state: { allWindows: false } });
+    assert.equal(await press(context, 'next'), 1);
+    assert.deepEqual(context.created, []);
+});
+
+test('a copy opened here keeps the other window’s slot in the walk', async () => {
+    const context = multiWindow({ activeId: 1 });
+    const copy = { id: 30, windowId: 5, index: 5, url: 'https://two.test/', active: false };
+    const query = context.chromeApi.tabs.query;
+    context.chromeApi.tabs.query = async args =>
+        [...(await query(args)), copy].filter(t => !args?.windowId || t.windowId === args.windowId);
+    const readState = context.readState;
+    context.readState = async () => {
+        const state = await readState();
+        state.spaces[0].temporaryTabs.push(30);
+        return state;
+    };
+    // The copy stands where tab 2 did, between tabs 1 and 3, not at the end of the list.
+    assert.equal(await press(context, 'next'), 30);
+    assert.deepEqual(context.updates, [30]);
+    context.chromeApi.tabs.query = async args =>
+        [...(await query(args)), copy]
+            .filter(t => !args?.windowId || t.windowId === args.windowId)
+            .map(t => ({ ...t, active: t.id === 3 }));
+    assert.equal(await press(context, 'prev'), 30);
+});
+
+test('a quick second press opens the other window’s page once', async () => {
+    const context = multiWindow({ activeId: 1 });
+    const first = await press(context, 'next');
+    const second = await press(context, 'next');
+    assert.equal(first, 99);
+    assert.equal(second, null);
+    assert.equal(context.created.length, 1);
+    // Later, with the guard time over, a press opens it again.
+    assert.equal(await stepTabInSpace({ ...context, direction: 'next', now: () => Date.now() + 5000 }), 99);
+});

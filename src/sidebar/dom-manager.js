@@ -18,6 +18,7 @@ import { RESTORE_ICON } from './icons.js';
 import { Logger } from '../shared/logger.js';
 import { setSpaceColorVars } from './features/color-overrides/space-color-vars.js';
 import { positionSubmenu } from './features/context-menu/position-submenu.js';
+import { moveToSpaceEntries } from './features/context-menu/space-menu-entries.js';
 import { fillSpaceMenuItem } from './features/context-menu/space-menu-item.js';
 import { drawSpaceIcon } from './features/space-icons/draw-space-icon.js';
 
@@ -298,105 +299,46 @@ export function showTabContextMenu(
 
     // Favorites must carry their saved bookmark so moving them does not silently unpin them.
     if (!isBookmarkOnly || typeof moveFavoriteToSpace === 'function') {
-        const moveToSpaceItem = document.createElement('div');
-        moveToSpaceItem.className = 'context-menu-item with-submenu';
-        moveToSpaceItem.textContent = 'Move to Space';
-
-        const submenu = document.createElement('div');
-        submenu.className = 'context-menu submenu';
-
         // Add active spaces
         const currentSpace = isBookmarkOnly
             ? spaces.find(s => s.id === tabElement.closest('.space')?.dataset.spaceId)
             : spaces.find(s => s.temporaryTabs.includes(tab.id) || s.spaceBookmarks.includes(tab.id));
-        const otherActiveSpaces = spaces.filter(s => s.id !== currentSpace?.id);
-        otherActiveSpaces.forEach(space => {
-            const submenuItem = document.createElement('div');
-            submenuItem.className = 'context-menu-item';
-            fillSpaceMenuItem(submenuItem, space.name, space.icon, drawSpaceIcon);
-            submenuItem.addEventListener('click', async e => {
-                e.stopPropagation();
-                contextMenu.remove(); // Close menu immediately for better UX
-
-                if (isPinned && typeof moveFavoriteToSpace === 'function') {
-                    try {
-                        await moveFavoriteToSpace(tab, tabElement, space.id);
-                    } catch (error) {
-                        Logger.warn('[ContextMenu] Failed to move favorite to space:', error);
-                        return;
-                    }
-                } else {
-                    await moveTabToSpace(tab.id, space.id, false);
-                }
-                // Set the space as active, but prevent it from auto-activating a different tab
-                await setActiveSpace(space.id, false);
-                // Explicitly activate the tab that was just moved
-                if (!isBookmarkOnly) await Utils.focusTab(tab.id);
-            });
-            submenu.appendChild(submenuItem);
-        });
-
-        // Add inactive spaces
-        const activeSpaceNames = new Set(spaces.map(s => s.name));
         // Creating an inactive space needs a live tab, which unloaded favorites do not have.
+        const activeSpaceNames = new Set(spaces.map(s => s.name));
         const inactiveSpaceFolders = isBookmarkOnly
             ? []
             : allBookmarkSpaceFolders.filter(f => !f.url && !activeSpaceNames.has(f.title));
-
-        if (otherActiveSpaces.length > 0 && inactiveSpaceFolders.length > 0) {
-            const separator = document.createElement('div');
-            separator.className = 'context-menu-separator';
-            submenu.appendChild(separator);
-        }
-
-        inactiveSpaceFolders.forEach(folder => {
-            const submenuItem = document.createElement('div');
-            submenuItem.className = 'context-menu-item';
-            fillSpaceMenuItem(submenuItem, folder.title, folder.icon, drawSpaceIcon);
-            submenuItem.addEventListener('click', e => {
-                e.stopPropagation();
-                createSpaceFromInactive(folder.title, tab);
-                contextMenu.remove();
-            });
-            submenu.appendChild(submenuItem);
-        });
-
-        // Only add the "Move to" menu if there's somewhere to move to
-        if (submenu.hasChildNodes()) {
-            moveToSpaceItem.appendChild(submenu);
-            contextMenu.appendChild(moveToSpaceItem);
-
-            // Adjust submenu position when it becomes visible
-            moveToSpaceItem.addEventListener('mouseenter', () => {
-                // Wait for next frame to ensure submenu is rendered
-                requestAnimationFrame(() => {
-                    const submenuRect = submenu.getBoundingClientRect();
-                    const parentRect = moveToSpaceItem.getBoundingClientRect();
-                    const viewportWidth = window.innerWidth;
-                    const viewportHeight = window.innerHeight;
-
-                    // Reset any previous adjustments
-                    submenu.style.left = '';
-                    submenu.style.right = '';
-                    submenu.style.top = '';
-                    submenu.style.bottom = '';
-
-                    // Check if submenu overflows right edge
-                    if (parentRect.right + submenuRect.width > viewportWidth) {
-                        // Position to the left of parent instead
-                        submenu.style.left = 'auto';
-                        submenu.style.right = '100%';
-                    }
-
-                    // Check if submenu overflows bottom edge
-                    if (parentRect.top + submenuRect.height > viewportHeight) {
-                        // Align to bottom instead of top
-                        submenu.style.top = 'auto';
-                        submenu.style.bottom = '0';
-                    }
-                });
-            });
-        }
+        appendMenuEntries(
+            contextMenu,
+            [
+                {
+                    label: 'Move to Space',
+                    submenu: moveToSpaceEntries({
+                        spaces,
+                        currentSpaceId: currentSpace?.id,
+                        inactiveFolders: inactiveSpaceFolders,
+                        onMove: async space => {
+                            if (isPinned && typeof moveFavoriteToSpace === 'function') {
+                                try {
+                                    await moveFavoriteToSpace(tab, tabElement, space.id);
+                                } catch (error) {
+                                    Logger.warn('[ContextMenu] Failed to move favorite to space:', error);
+                                    return;
+                                }
+                            } else {
+                                await moveTabToSpace(tab.id, space.id, false);
+                            }
+                            // Set the space as active, but prevent it from auto-activating a different tab
+                            await setActiveSpace(space.id, false);
+                            // Explicitly activate the tab that was just moved
+                            if (!isBookmarkOnly) await Utils.focusTab(tab.id);
+                        },
+                        onCreate: folder => createSpaceFromInactive(folder.title, tab)
+                    })
+                }
+            ],
+            contextMenu
+        );
     }
 
     // Archive Tab (Only for active tabs)
@@ -560,8 +502,44 @@ export async function showArchivedTabsPopup(activeSpaceId) {
 }
 
 /**
+ * Append menu entries to a menu or submenu. `root` is the menu an action closes. Every submenu is
+ * placed by positionSubmenu, so none can run off the panel.
+ */
+export function appendMenuEntries(container, items, root) {
+    for (const entry of items) {
+        if (entry === 'separator') {
+            const separator = document.createElement('div');
+            separator.className = 'context-menu-separator';
+            container.appendChild(separator);
+        } else if (entry.note) {
+            const note = document.createElement('div');
+            note.className = 'context-menu-note';
+            note.textContent = entry.label;
+            container.appendChild(note);
+        } else if (entry.submenu) {
+            if (!entry.submenu.length) continue;
+            const item = document.createElement('div');
+            item.className = 'context-menu-item with-submenu';
+            item.textContent = entry.label;
+            const submenu = document.createElement('div');
+            submenu.className = 'context-menu submenu';
+            appendMenuEntries(submenu, entry.submenu, root);
+            item.appendChild(submenu);
+            item.addEventListener('mouseenter', () => positionSubmenu(item, submenu));
+            container.appendChild(item);
+        } else {
+            const item = addMenuItem(container, entry.label, async () => {
+                root.remove();
+                await entry.action();
+            });
+            if (entry.icon) fillSpaceMenuItem(item, entry.label, entry.icon, drawSpaceIcon);
+        }
+    }
+}
+
+/**
  * Show a context menu built from entries: { label, action }, { label, submenu: [...] },
- * { label, note: true } for a heading, or 'separator'.
+ * { label, note: true } for a heading, or 'separator'. An entry may carry a space `icon`.
  */
 export function showMenu(x, y, entries, id = 'tab-context-menu') {
     document.getElementById(id)?.remove();
@@ -571,37 +549,7 @@ export function showMenu(x, y, entries, id = 'tab-context-menu') {
     menu.style.position = 'fixed';
     menu.style.left = `${x}px`;
     menu.style.top = `${y}px`;
-    const fill = (container, items) => {
-        for (const entry of items) {
-            if (entry === 'separator') {
-                const separator = document.createElement('div');
-                separator.className = 'context-menu-separator';
-                container.appendChild(separator);
-            } else if (entry.note) {
-                const note = document.createElement('div');
-                note.className = 'context-menu-note';
-                note.textContent = entry.label;
-                container.appendChild(note);
-            } else if (entry.submenu) {
-                if (!entry.submenu.length) continue;
-                const item = document.createElement('div');
-                item.className = 'context-menu-item with-submenu';
-                item.textContent = entry.label;
-                const submenu = document.createElement('div');
-                submenu.className = 'context-menu submenu';
-                fill(submenu, entry.submenu);
-                item.appendChild(submenu);
-                item.addEventListener('mouseenter', () => positionSubmenu(item, submenu));
-                container.appendChild(item);
-            } else {
-                addMenuItem(container, entry.label, async () => {
-                    menu.remove();
-                    await entry.action();
-                });
-            }
-        }
-    };
-    fill(menu, entries);
+    appendMenuEntries(menu, entries, menu);
     document.body.appendChild(menu);
     Utils.adjustMenuPosition(menu, x, y);
     const close = event => {

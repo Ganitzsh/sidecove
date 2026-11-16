@@ -55,6 +55,7 @@ import { parseSpaceCommand, switchSpaceWithoutSidebar } from '../shared/space-na
 import { registerAutoArchive, TAB_ACTIVITY_STORAGE_KEY } from './auto-archive.js';
 import { openOnboardingIfDue } from './onboarding-lifecycle.js';
 import { RECENT_TAB_COMMAND, registerRecentTab } from './recent-tab.js';
+import { ALL_WINDOWS_SETTING } from '../shared/saved-favorites.js';
 import { stepTabInSpace as stepActiveTab } from './tab-step.js';
 import { registerCloseEmptyNewTab } from './close-empty-new-tab.js';
 import { registerPendingClean } from './pending-clean.js';
@@ -106,13 +107,17 @@ async function stepTabInSpace(direction) {
     try {
         await stepActiveTab({
             chromeApi: chrome,
-            readState: () =>
-                spaceStore.run(() => ({
+            readState: async () => {
+                // On unless turned off, as the panel reads it.
+                const settings = await chrome.storage.sync.get({ [ALL_WINDOWS_SETTING]: true });
+                return spaceStore.run(() => ({
                     spaces: spaceStore.spaces,
                     activeSpaces: spaceStore.active,
                     perSpaceFavorites: spaceStore.perSpacePinnedFavorites,
-                    invertTabOrder: spaceStore.invertTabOrder
-                })),
+                    invertTabOrder: spaceStore.invertTabOrder,
+                    allWindows: settings[ALL_WINDOWS_SETTING] !== false
+                }));
+            },
             direction
         });
     } catch (error) {

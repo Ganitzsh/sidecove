@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     archiveTabs,
+    clearableTabs,
+    closableTabs,
     clearTabs,
     stepOffClearedTabs,
     undoClear,
@@ -198,4 +200,28 @@ test('closing selected tabs still reopens them in order in their space', async (
         ['create', { url: 'https://c.example/', active: false, windowId: 7 }],
         ['assign', 101, 'home']
     ]);
+});
+
+test('Clear leaves untouched New Tabs out, whatever they are still loading', () => {
+    const tabs = [
+        { id: 1, url: 'chrome://newtab/' },
+        { id: 2, url: '', pendingUrl: 'chrome://new-tab-page/' },
+        { id: 3, url: 'https://example.com/' },
+        { id: 4, url: 'chrome://newtab/', pendingUrl: 'https://example.com/next' }
+    ];
+    assert.deepEqual(
+        clearableTabs(tabs).map(tab => tab.id),
+        [3, 4]
+    );
+});
+
+test('Clear offers nothing when only favorites and untouched New Tabs are left', () => {
+    const newTab = { id: 2, url: 'chrome://newtab/' };
+    const favorite = { id: 1, url: 'https://fav.test/' };
+    const page = { id: 3, url: 'https://page.test/' };
+    const context = { protectedIds: new Set([1]), bindings: {}, favoriteUrlKeys: new Set() };
+    assert.deepEqual(closableTabs([favorite, newTab], context), []);
+    assert.deepEqual(closableTabs([favorite, newTab, page], context), [page]);
+    const bound = { id: 4, url: 'https://bound.test/' };
+    assert.deepEqual(closableTabs([bound], { ...context, bindings: { 4: { bookmarkId: 'b' } } }), []);
 });

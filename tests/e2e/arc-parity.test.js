@@ -189,7 +189,8 @@ describe('Clear', () => {
             () => document.querySelectorAll('.space.active [data-tab-type="temporary"] .tab[data-tab-id]').length === 3,
             { polling: 100 }
         );
-        const before = await tempRows();
+        // A New Tab that the space switch opened may still be closing; Clear leaves it alone anyway.
+        const before = (await tempRows()).filter(url => url !== 'chrome://newtab/');
 
         await page.$eval('.space.active .clean-tabs-btn', button => button.click());
         await page.waitForFunction(
@@ -208,7 +209,7 @@ describe('Clear', () => {
             { polling: 100 }
         );
         await sleep(300);
-        expect(await tempRows()).toEqual(before);
+        expect((await tempRows()).filter(url => url !== 'chrome://newtab/')).toEqual(before);
         const after = await page.evaluate(async () =>
             (await chrome.storage.local.get('archivedTabs')).archivedTabs.map(t => t.url)
         );
