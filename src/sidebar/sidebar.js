@@ -47,7 +47,6 @@ import { RefreshCoordinator } from './refresh-coordinator.js';
 import { EditSessionRegistry } from './edit-sessions.js';
 import { wireNewTabRow } from './features/new-tab/new-tab-row.js';
 import { createSpaceTabShower } from './features/space-switch/show-space-tab.js';
-import { isProtectedFavorite } from '../shared/favorite-safety.js';
 import {
     selectWindowSpaceTabs,
     mergeVisibleOrder,
@@ -59,7 +58,7 @@ import { ownerOf } from '../shared/space-store.js';
 import { canCreateFolder, canMoveFolder, createFolder } from './folder-policy.js';
 import {
     clearTabs,
-    clearableTabs,
+    closableTabs,
     undoClear,
     reopenClosedTabs,
     startPendingClean,
@@ -2659,10 +2658,20 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer) {
     const { listed: tabs, orderIds } = await getListedTabs(space.id);
     // A pinned tab binds to its bookmark in its own window only.
     const ownTabs = tabs.filter(t => !isOtherWindow(t, currentWindow.id));
-    // Nothing to clear but untouched New Tabs: the button would only archive an empty page.
-    const clearButton = pinnedContainer.closest('.space')?.querySelector('.clean-tabs-btn');
-    if (clearButton) clearButton.hidden = !clearableTabs(ownTabs).length;
     const pinnedStatesById = await Utils.getPinnedTabStates();
+    // Nothing for Clear to close (only favorites and untouched New Tabs): hide the button.
+    const clearButton = pinnedContainer.closest('.space')?.querySelector('.clean-tabs-btn');
+    if (clearButton) {
+        const favoriteUrlKeys = await getSpaceFavoriteUrlKeys(space).catch(() => null);
+        // Without the favorites' addresses the answer is unknown, so the button stays.
+        clearButton.hidden =
+            favoriteUrlKeys !== null &&
+            !closableTabs(ownTabs, {
+                protectedIds: new Set(space.spaceBookmarks),
+                bindings: pinnedStatesById,
+                favoriteUrlKeys
+            }).length;
+    }
     const pinnedFragment = document.createDocumentFragment();
     let treeAvailable = true;
     let treeLoaded = false;
@@ -4076,9 +4085,7 @@ async function cleanTemporaryTabs(spaceId) {
     const protectedIds = new Set(space.spaceBookmarks);
     const favoriteUrlKeys = await getSpaceFavoriteUrlKeys(space);
     const bindings = await Utils.getPinnedTabStates();
-    const closable = clearableTabs(
-        ownedTabs.filter(t => !isProtectedFavorite(t, protectedIds, bindings, favoriteUrlKeys))
-    );
+    const closable = closableTabs(ownedTabs, { protectedIds, bindings, favoriteUrlKeys });
 
     if (!closable.length) return;
 

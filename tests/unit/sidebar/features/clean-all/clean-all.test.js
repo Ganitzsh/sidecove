@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     archiveTabs,
     clearableTabs,
+    closableTabs,
     clearTabs,
     stepOffClearedTabs,
     undoClear,
@@ -212,4 +213,15 @@ test('Clear leaves untouched New Tabs out, whatever they are still loading', () 
         clearableTabs(tabs).map(tab => tab.id),
         [3, 4]
     );
+});
+
+test('Clear offers nothing when only favorites and untouched New Tabs are left', () => {
+    const newTab = { id: 2, url: 'chrome://newtab/' };
+    const favorite = { id: 1, url: 'https://fav.test/' };
+    const page = { id: 3, url: 'https://page.test/' };
+    const context = { protectedIds: new Set([1]), bindings: {}, favoriteUrlKeys: new Set() };
+    assert.deepEqual(closableTabs([favorite, newTab], context), []);
+    assert.deepEqual(closableTabs([favorite, newTab, page], context), [page]);
+    const bound = { id: 4, url: 'https://bound.test/' };
+    assert.deepEqual(closableTabs([bound], { ...context, bindings: { 4: { bookmarkId: 'b' } } }), []);
 });

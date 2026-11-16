@@ -92,7 +92,7 @@ function multiWindow({ activeId, state = {} }) {
         allWindows: true,
         ...state
     });
-    return { chromeApi, readState, updates, created };
+    return { chromeApi, readState, updates, created, recentOpens: new Map() };
 }
 
 test('with tabs from all windows, the walk is the panel’s list and a tab in another window opens here', async () => {
@@ -138,4 +138,15 @@ test('a copy opened here keeps the other window’s slot in the walk', async () 
             .filter(t => !args?.windowId || t.windowId === args.windowId)
             .map(t => ({ ...t, active: t.id === 3 }));
     assert.equal(await press(context, 'prev'), 30);
+});
+
+test('a quick second press opens the other window’s page once', async () => {
+    const context = multiWindow({ activeId: 1 });
+    const first = await press(context, 'next');
+    const second = await press(context, 'next');
+    assert.equal(first, 99);
+    assert.equal(second, null);
+    assert.equal(context.created.length, 1);
+    // Later, with the guard time over, a press opens it again.
+    assert.equal(await stepTabInSpace({ ...context, direction: 'next', now: () => Date.now() + 5000 }), 99);
 });

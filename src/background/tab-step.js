@@ -2,13 +2,17 @@ import { spaceForActivation } from '../shared/space-membership.js';
 import { inListedOrder, pickAction, selectFavoriteTabs, selectListedTabs } from '../shared/all-windows.js';
 import { tabCycleOrder, adjacentTabId } from '../shared/tab-step.js';
 
+// How long a page just opened here is not opened again, as in the panel's open-here.js.
+export const REOPEN_GUARD_MS = 1500;
+const openedHere = new Map();
+
 // The next and previous tab in space shortcuts: from the focused window's active tab, walk the
 // pinned tabs and then the space's tabs. With tabs from all windows on, that is exactly the list
 // the panel shows, other windows' tabs included; stepping onto one opens its page here, as picking
 // it in the panel does. A shared pinned tab belongs to no one space, so the
 // space the panel shows decides, as for the recent-tab shortcut. `chromeApi` is passed in so tests
 // can fake it; `readState` returns the spaces, the space shown per window and the two settings.
-export async function stepTabInSpace({ chromeApi, readState, direction }) {
+export async function stepTabInSpace({ chromeApi, readState, direction, now = Date.now, recentOpens = openedHere }) {
     const window = await chromeApi.windows.getLastFocused({ windowTypes: ['normal'] });
     const [state, windowTabs] = await Promise.all([readState(), chromeApi.tabs.query({ windowId: window.id })]);
     const active = windowTabs.find(tab => tab.active);
@@ -34,7 +38,14 @@ export async function stepTabInSpace({ chromeApi, readState, direction }) {
     if (targetId === null) return null;
     const target = allTabs?.find(tab => tab.id === targetId);
     const action = target ? pickAction(target, window.id) : { activate: targetId };
-    if (action.activate == null) return (await chromeApi.tabs.create(action.open)).id;
+    if (action.activate == null) {
+        // A quick second press, before the new tab is listed, must not open the page twice.
+        const key = `${action.open.pinned}:${action.open.url}`;
+        const last = recentOpens.get(key);
+        if (!action.open.url || (last !== undefined && now() - last < REOPEN_GUARD_MS)) return null;
+        recentOpens.set(key, now());
+        return (await chromeApi.tabs.create(action.open)).id;
+    }
     await chromeApi.tabs.update(targetId, { active: true });
     return targetId;
 }

@@ -8,12 +8,18 @@
  * Chrome and storage calls are injected so the order of operations can be tested.
  */
 import { pickTabAfterClose } from '../close-tab/close-focus.js';
+import { isProtectedFavorite } from '../../../shared/favorite-safety.js';
 import { isUntouchedPage } from '../../../shared/new-tab-page.js';
 import { PENDING_CLEAN_MESSAGE } from '../../../shared/pending-clean.js';
 
 // An untouched New Tab has nothing worth keeping: archiving it only adds a "New tab" entry and
 // opens another one. Clear, and the button that offers it, leave such tabs out.
 export const clearableTabs = tabs => tabs.filter(tab => !isUntouchedPage(tab));
+
+// What Clear closes: the tabs left once favorites, which it never closes, and untouched New Tabs
+// are out. The Clear button and Clear itself both use this, so the button never offers nothing.
+export const closableTabs = (tabs, { protectedIds, bindings, favoriteUrlKeys }) =>
+    clearableTabs(tabs.filter(tab => !isProtectedFavorite(tab, protectedIds, bindings, favoriteUrlKeys)));
 
 export async function archiveTabs(tabs, spaceId, { addArchivedTab }) {
     const records = [];
