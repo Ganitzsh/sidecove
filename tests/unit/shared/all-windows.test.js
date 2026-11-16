@@ -7,8 +7,8 @@ import {
     selectFavoriteTabs,
     selectListedTabs,
     visibleWindowTabs
-} from '../../../../../src/sidebar/features/all-windows/all-windows.js';
-import { selectWindowSpaceTabs } from '../../../../../src/sidebar/sidebar-tabs.js';
+} from '../../../src/shared/all-windows.js';
+import { selectWindowSpaceTabs } from '../../../src/sidebar/sidebar-tabs.js';
 
 const here = { id: 1, incognito: false };
 const tab = (id, windowId, extra = {}) => ({

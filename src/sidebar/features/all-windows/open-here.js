@@ -1,4 +1,4 @@
-import { pickAction } from './all-windows.js';
+import { pickAction } from '../../../shared/all-windows.js';
 
 // The list shows the other window's entry until it redraws with the new tab, so a quick second
 // click within this time does not open the page twice.

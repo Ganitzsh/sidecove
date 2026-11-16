@@ -7,7 +7,7 @@ import {
     pageTabIds,
     selectListedTabs,
     visibleWindowTabs
-} from './features/all-windows/all-windows.js';
+} from '../shared/all-windows.js';
 import { trackAllWindowsSetting } from './features/all-windows/all-windows-setting.js';
 import { markOtherWindowRow } from './features/all-windows/other-window-mark.js';
 import { createOpenHere } from './features/all-windows/open-here.js';

@@ -14,8 +14,8 @@ const activeTabId = () =>
     );
 
 // What the panel shows, top to bottom, for this window: the top-bar favorites, then the space.
-// With tabs from all windows on the panel also lists other windows' tabs, and the top bar shows
-// other windows' favorites dimmed, with no tab here; the shortcuts stay here.
+// With tabs from all windows off, that is this window's tabs. With it on, the panel also lists
+// other windows' tabs and the shortcuts walk those too (see the last test).
 const shownOrder = () =>
     page.evaluate(
         async (rows, windowId) => {
@@ -149,10 +149,7 @@ async function walkCircle(shown) {
     for (let i = shown.length - 1; i >= 0; i--) await step('prev', shown[(i + shown.length) % shown.length]);
 }
 
-describe.each([
-    ['on', true],
-    ['off', false]
-])('tabs from all windows %s', (_label, showTabsFromAllWindows) => {
+describe.each([['off', false]])('tabs from all windows %s', (_label, showTabsFromAllWindows) => {
     test('shared favorites: every space walks the pinned tabs, then its own tabs', async () => {
         await apply({ showTabsFromAllWindows, perSpacePinnedFavorites: false, invertTabOrder: false });
         for (const spaceId of [ids.first, ids.second]) {
@@ -177,4 +174,46 @@ describe.each([
             await walkCircle(shown);
         }
     });
+});
+
+// Tabs from all windows on: the shortcuts walk exactly what the panel shows, other windows' tabs
+// included, and stepping onto one opens it in this window, as clicking it does.
+test('tabs from all windows on: the walk includes other windows’ tabs and opens them here', async () => {
+    await apply({ showTabsFromAllWindows: true, perSpacePinnedFavorites: false, invertTabOrder: false });
+    await switchTo(ids.first, [ids.pinA, ids.pinB]);
+    const { shown, windows } = await page.evaluate(async rows => {
+        const shown = [
+            ...document.querySelectorAll('#pinnedFavicons .pinned-favicon[data-tab-id]'),
+            ...document.querySelectorAll(rows)
+        ].map(el => Number(el.dataset.tabId));
+        const windows = {};
+        for (const id of shown) windows[id] = (await chrome.tabs.get(id)).windowId;
+        return { shown, windows };
+    }, rows);
+    expect(shown.some(id => windows[id] !== ids.here)).toBe(true);
+    // The entry just before the first one that lives in another window.
+    const index = shown.findIndex(id => windows[id] !== ids.here);
+    expect(index).toBeGreaterThan(0);
+    const before = shown[index - 1];
+    const target = shown[index];
+    const url = await page.evaluate(async id => (await chrome.tabs.get(id)).url, target);
+    await activate(before);
+    await waitForActive(before);
+    // The shortcuts act on the window in use.
+    await page.evaluate(windowId => chrome.windows.update(windowId, { focused: true }), ids.here);
+    const response = await page.evaluate(() =>
+        chrome.runtime.sendMessage({ command: 'stepTabInSpace', direction: 'next' })
+    );
+    expect(response.success).toBe(true);
+    await page.waitForFunction(
+        async (url, windowId, otherId) => {
+            const [active] = await chrome.tabs.query({ active: true, windowId });
+            const original = await chrome.tabs.get(otherId).catch(() => null);
+            return (active.url || active.pendingUrl) === url && active.id !== otherId && original !== null;
+        },
+        { polling: 100, timeout: 5000 },
+        url,
+        ids.here,
+        target
+    );
 });
