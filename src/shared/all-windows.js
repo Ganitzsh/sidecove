@@ -18,30 +18,34 @@ export function visibleWindowTabs(tabs, win, allWindows) {
     );
 }
 
-// Each of this window's copies of a page that another window's tab also shows, mapped to that
-// tab: the first copy stands for the first such tab, and takes its slot in the list.
+// A page's slot in the list is where the earliest tab showing it, in any window, sits, so every
+// window lists the pages in the same order. Each window shows its own first tab of the page in
+// that slot. Maps each such tab of this window to the earlier tab whose slot it takes.
 export function claimedCopies(tabs, windowId) {
-    const firstOther = new Map();
-    for (const tab of tabs)
-        if (isOtherWindow(tab, windowId) && !firstOther.has(pageOf(tab))) firstOther.set(pageOf(tab), tab);
+    const slots = new Map();
     const copies = new Map();
-    const claimed = new Set();
     for (const tab of tabs) {
         const page = pageOf(tab);
-        if (isOtherWindow(tab, windowId) || !firstOther.has(page) || claimed.has(page)) continue;
-        claimed.add(page);
-        copies.set(tab.id, firstOther.get(page));
+        if (!slots.has(page)) slots.set(page, tab);
+    }
+    const taken = new Set();
+    for (const tab of tabs) {
+        const page = pageOf(tab);
+        if (isOtherWindow(tab, windowId) || taken.has(page)) continue;
+        taken.add(page);
+        if (slots.get(page) !== tab) copies.set(tab.id, slots.get(page));
     }
     return copies;
 }
 
-// Keeps all of this window's tabs, and another window's tab only when no tab of this window, or
-// kept before it, shows its page. This window's copy always stands for a page, and sits in the
-// slot of the other window's tab it was opened from, so the list does not reorder.
+// Keeps all of this window's tabs, and another window's tab only when this window has none for
+// its page. Each page sits in its global slot, so the list does not reorder when a tab is opened
+// in another window.
 export function onePerPage(tabs, windowId) {
     const copies = claimedCopies(tabs, windowId);
-    const copyOf = new Map([...copies].map(([id, other]) => [other.id, tabs.find(tab => tab.id === id)]));
-    const placed = new Set();
+    const copyAt = new Map([...copies].map(([id, slot]) => [slot.id, tabs.find(tab => tab.id === id)]));
+    const ownPages = new Set(tabs.filter(tab => !isOtherWindow(tab, windowId)).map(pageOf));
+    const seenOther = new Set();
     const kept = [];
     for (const tab of tabs) {
         if (!isOtherWindow(tab, windowId)) {
@@ -49,9 +53,10 @@ export function onePerPage(tabs, windowId) {
             continue;
         }
         const page = pageOf(tab);
-        if (placed.has(page)) continue;
-        placed.add(page);
-        kept.push(copyOf.get(tab.id) || tab);
+        if (seenOther.has(page)) continue;
+        seenOther.add(page);
+        if (copyAt.has(tab.id)) kept.push(copyAt.get(tab.id));
+        else if (!ownPages.has(page)) kept.push(tab);
     }
     return kept;
 }

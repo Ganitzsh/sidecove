@@ -1,5 +1,5 @@
 import { spaceForActivation } from '../shared/space-membership.js';
-import { pickAction, selectFavoriteTabs, selectListedTabs } from '../shared/all-windows.js';
+import { inListedOrder, pickAction, selectFavoriteTabs, selectListedTabs } from '../shared/all-windows.js';
 import { tabCycleOrder, adjacentTabId } from '../shared/tab-step.js';
 
 // The next and previous tab in space shortcuts: from the focused window's active tab, walk the
@@ -47,5 +47,11 @@ function panelCycle(space, allTabs, window, { perSpaceFavorites, invertTabOrder 
         spaceTabIds: new Set(space.pinnedTabs ?? [])
     }).map(tab => tab.id);
     const listedIds = selectListedTabs(space, allTabs, window, true).map(tab => tab.id);
-    return tabCycleOrder(space, { pinnedIds, invertTabOrder, openTabIds: new Set([...pinnedIds, ...listedIds]) });
+    // A copy opened here sits in the slot of the other window's tab it stands for, as in the panel.
+    const inPanelOrder = { ...space, temporaryTabs: inListedOrder(space.temporaryTabs, space, allTabs, window, true) };
+    return tabCycleOrder(inPanelOrder, {
+        pinnedIds,
+        invertTabOrder,
+        openTabIds: new Set([...pinnedIds, ...listedIds])
+    });
 }

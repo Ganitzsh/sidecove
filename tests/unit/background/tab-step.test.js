@@ -117,3 +117,25 @@ test('with tabs from all windows off, other windows’ tabs are not walked', asy
     assert.equal(await press(context, 'next'), 1);
     assert.deepEqual(context.created, []);
 });
+
+test('a copy opened here keeps the other window’s slot in the walk', async () => {
+    const context = multiWindow({ activeId: 1 });
+    const copy = { id: 30, windowId: 5, index: 5, url: 'https://two.test/', active: false };
+    const query = context.chromeApi.tabs.query;
+    context.chromeApi.tabs.query = async args =>
+        [...(await query(args)), copy].filter(t => !args?.windowId || t.windowId === args.windowId);
+    const readState = context.readState;
+    context.readState = async () => {
+        const state = await readState();
+        state.spaces[0].temporaryTabs.push(30);
+        return state;
+    };
+    // The copy stands where tab 2 did, between tabs 1 and 3, not at the end of the list.
+    assert.equal(await press(context, 'next'), 30);
+    assert.deepEqual(context.updates, [30]);
+    context.chromeApi.tabs.query = async args =>
+        [...(await query(args)), copy]
+            .filter(t => !args?.windowId || t.windowId === args.windowId)
+            .map(t => ({ ...t, active: t.id === 3 }));
+    assert.equal(await press(context, 'prev'), 30);
+});

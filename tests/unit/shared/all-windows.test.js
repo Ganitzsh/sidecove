@@ -194,12 +194,12 @@ test('a page opened here from another window’s tab keeps that tab’s slot in 
     );
 });
 
-test('a copy listed before the other window’s tab, as with new tabs at the top, takes its slot too', () => {
+test('a copy listed before the other window’s tab already holds the page’s earliest slot', () => {
     const same = (id, windowId) => tab(id, windowId, { url: 'https://same.test/' });
     const tabs = [same(9, 1), tab(1, 1), same(3, 2), tab(4, 1)];
     assert.deepEqual(
         onePerPage(tabs, 1).map(t => t.id),
-        [1, 9, 4]
+        [9, 1, 4]
     );
 });
 
@@ -209,4 +209,41 @@ test('the panel’s id list swaps a relocated copy into the other window’s slo
     const tabs = [tab(1, 1), same(3, 2), tab(4, 1), same(9, 1)];
     assert.deepEqual(inListedOrder([1, 3, 4, 9, 77], space, tabs, here, true), [1, 9, 4, 3, 77]);
     assert.deepEqual(inListedOrder([1, 3, 4, 9, 77], space, tabs, here, false), [1, 3, 4, 9, 77]);
+});
+
+test('every window lists the pages in the same order, whichever window opened a copy', () => {
+    const mk = (id, windowId, page) => tab(id, windowId, { url: `https://x.test/${page}` });
+    const space = { spaceBookmarks: [], temporaryTabs: [5, 11, 12, 13] };
+    let tabs = [mk(5, 1, 'G'), mk(11, 2, 'P'), mk(12, 2, 'Q'), mk(13, 2, 'R')];
+    const open = (id, windowId, page) => {
+        tabs = [...tabs, mk(id, windowId, page)];
+        space.temporaryTabs.push(id);
+    };
+    const pagesIn = windowId =>
+        selectListedTabs(space, tabs, { id: windowId, incognito: false }, true).map(t => t.url.slice(-1));
+    const panelIn = windowId =>
+        inListedOrder(space.temporaryTabs, space, tabs, { id: windowId, incognito: false }, true)
+            .map(id => tabs.find(t => t.id === id))
+            .filter(t => selectListedTabs(space, tabs, { id: windowId, incognito: false }, true).includes(t))
+            .map(t => t.url.slice(-1));
+    for (const [id, windowId, page] of [
+        [21, 1, 'P'],
+        [22, 1, 'Q'],
+        [23, 2, 'G']
+    ]) {
+        open(id, windowId, page);
+        assert.deepEqual(pagesIn(1), ['G', 'P', 'Q', 'R']);
+        assert.deepEqual(pagesIn(2), ['G', 'P', 'Q', 'R']);
+        assert.deepEqual(panelIn(1), ['G', 'P', 'Q', 'R']);
+        assert.deepEqual(panelIn(2), ['G', 'P', 'Q', 'R']);
+    }
+    // Each window shows its own tab for the page.
+    assert.deepEqual(
+        selectListedTabs(space, tabs, here, true).map(t => t.id),
+        [5, 21, 22, 13]
+    );
+    assert.deepEqual(
+        selectListedTabs(space, tabs, { id: 2, incognito: false }, true).map(t => t.id),
+        [23, 11, 12, 13]
+    );
 });
