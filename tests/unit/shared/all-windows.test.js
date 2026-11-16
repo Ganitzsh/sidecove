@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    inListedOrder,
     isOtherWindow,
+    onePerPage,
     pageTabIds,
     pickAction,
     selectFavoriteTabs,
@@ -175,4 +177,36 @@ test('closing an entry closes every open tab of its page in the space, in every 
     ];
     assert.deepEqual(pageTabIds(space, tabs, here, tabs[0]), [1, 4]);
     assert.deepEqual(pageTabIds(space, tabs, here, tabs[2]), [6]);
+});
+
+test('a page opened here from another window’s tab keeps that tab’s slot in the list', () => {
+    const same = (id, windowId) => tab(id, windowId, { url: 'https://same.test/' });
+    const space = { spaceBookmarks: [], temporaryTabs: [1, 2, 3, 4, 9] };
+    const before = [tab(1, 1), tab(2, 1), same(3, 2), tab(4, 1)];
+    const after = [...before, same(9, 1)];
+    assert.deepEqual(
+        selectListedTabs(space, before, here, true).map(t => t.id),
+        [1, 2, 3, 4]
+    );
+    assert.deepEqual(
+        selectListedTabs(space, after, here, true).map(t => t.id),
+        [1, 2, 9, 4]
+    );
+});
+
+test('a copy listed before the other window’s tab, as with new tabs at the top, takes its slot too', () => {
+    const same = (id, windowId) => tab(id, windowId, { url: 'https://same.test/' });
+    const tabs = [same(9, 1), tab(1, 1), same(3, 2), tab(4, 1)];
+    assert.deepEqual(
+        onePerPage(tabs, 1).map(t => t.id),
+        [1, 9, 4]
+    );
+});
+
+test('the panel’s id list swaps a relocated copy into the other window’s slot, nothing else', () => {
+    const same = (id, windowId) => tab(id, windowId, { url: 'https://same.test/' });
+    const space = { spaceBookmarks: [], temporaryTabs: [1, 3, 4, 9] };
+    const tabs = [tab(1, 1), same(3, 2), tab(4, 1), same(9, 1)];
+    assert.deepEqual(inListedOrder([1, 3, 4, 9, 77], space, tabs, here, true), [1, 9, 4, 3, 77]);
+    assert.deepEqual(inListedOrder([1, 3, 4, 9, 77], space, tabs, here, false), [1, 3, 4, 9, 77]);
 });

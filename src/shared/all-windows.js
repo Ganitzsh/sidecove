@@ -18,22 +18,47 @@ export function visibleWindowTabs(tabs, win, allWindows) {
     );
 }
 
-// Keeps all of this window's tabs, and another window's tab only when no tab kept so far, or of
-// this window, shows its page. This window's copy therefore always stands for a page.
-export function onePerPage(tabs, windowId) {
-    const seen = new Set(tabs.filter(tab => !isOtherWindow(tab, windowId)).map(pageOf));
-    return tabs.filter(tab => {
-        if (!isOtherWindow(tab, windowId)) return true;
+// Each of this window's copies of a page that another window's tab also shows, mapped to that
+// tab: the first copy stands for the first such tab, and takes its slot in the list.
+export function claimedCopies(tabs, windowId) {
+    const firstOther = new Map();
+    for (const tab of tabs)
+        if (isOtherWindow(tab, windowId) && !firstOther.has(pageOf(tab))) firstOther.set(pageOf(tab), tab);
+    const copies = new Map();
+    const claimed = new Set();
+    for (const tab of tabs) {
         const page = pageOf(tab);
-        if (seen.has(page)) return false;
-        seen.add(page);
-        return true;
-    });
+        if (isOtherWindow(tab, windowId) || !firstOther.has(page) || claimed.has(page)) continue;
+        claimed.add(page);
+        copies.set(tab.id, firstOther.get(page));
+    }
+    return copies;
+}
+
+// Keeps all of this window's tabs, and another window's tab only when no tab of this window, or
+// kept before it, shows its page. This window's copy always stands for a page, and sits in the
+// slot of the other window's tab it was opened from, so the list does not reorder.
+export function onePerPage(tabs, windowId) {
+    const copies = claimedCopies(tabs, windowId);
+    const copyOf = new Map([...copies].map(([id, other]) => [other.id, tabs.find(tab => tab.id === id)]));
+    const placed = new Set();
+    const kept = [];
+    for (const tab of tabs) {
+        if (!isOtherWindow(tab, windowId)) {
+            if (!copies.has(tab.id)) kept.push(tab);
+            continue;
+        }
+        const page = pageOf(tab);
+        if (placed.has(page)) continue;
+        placed.add(page);
+        kept.push(copyOf.get(tab.id) || tab);
+    }
+    return kept;
 }
 
 // The live tabs of a space's list, in the space's order, one per page. A pinned tab binds to its
 // bookmark one window at a time, so a pinned tab open in another window is left to that window.
-export function selectListedTabs(space, tabs, win, allWindows) {
+function candidateTabs(space, tabs, win, allWindows) {
     const pinnedIds = new Set(space?.spaceBookmarks || []);
     const byId = new Map(
         visibleWindowTabs(tabs, win, allWindows)
@@ -41,8 +66,25 @@ export function selectListedTabs(space, tabs, win, allWindows) {
             .map(tab => [tab.id, tab])
     );
     const ids = new Set([...(space?.spaceBookmarks || []), ...(space?.temporaryTabs || [])]);
-    const listed = [...ids].map(id => byId.get(id)).filter(Boolean);
+    return [...ids].map(id => byId.get(id)).filter(Boolean);
+}
+
+export function selectListedTabs(space, tabs, win, allWindows) {
+    const listed = candidateTabs(space, tabs, win, allWindows);
     return allWindows ? onePerPage(listed, win.id) : listed;
+}
+
+// The space's id list with each relocated copy and the other window's tab it stands for swapped,
+// for a panel that draws from the id list rather than from the listed tabs.
+export function inListedOrder(ids, space, tabs, win, allWindows) {
+    if (!allWindows) return ids;
+    const out = [...ids];
+    for (const [copyId, other] of claimedCopies(candidateTabs(space, tabs, win, allWindows), win.id)) {
+        const copyAt = out.indexOf(copyId);
+        const otherAt = out.indexOf(other.id);
+        if (copyAt >= 0 && otherAt >= 0) [out[copyAt], out[otherAt]] = [out[otherAt], out[copyAt]];
+    }
+    return out;
 }
 
 // Top-bar favorites (Chrome pins), one per page: this window's first in tab strip order, then

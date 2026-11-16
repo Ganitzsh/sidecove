@@ -207,6 +207,19 @@ test('picking a tab open only in another window opens it here and leaves that wi
     await waitForActive(ids.own, ids.here);
     expect(await windowTabsAt(ids.here, url)).toEqual([]);
 
+    // A tab opened after it, so the entry is neither first nor last and a copy put at either
+    // end of the list would show.
+    const later = await page.evaluate(
+        async base => (await chrome.tabs.create({ url: `${base}/later-tab`, active: false })).id,
+        base
+    );
+    await page.waitForSelector(rowSelector(later));
+    const shownIds = () =>
+        page.$$eval('.space.active .tab[data-tab-id]', rows => rows.map(r => Number(r.dataset.tabId)));
+    const before = await shownIds();
+    expect(before.indexOf(ids.otherTab)).toBeGreaterThan(0);
+    expect(before.indexOf(ids.otherTab)).toBeLessThan(before.length - 1);
+
     await clickRow(ids.otherTab);
     await waitForOpenHere(url);
     // The other window keeps its tab, still in the background there: two tabs, one per window.
@@ -218,6 +231,10 @@ test('picking a tab open only in another window opens it here and leaves that wi
     await page.waitForSelector(rowSelector(copy));
     await page.waitForFunction(sel => !document.querySelector(sel), { polling: 100 }, rowSelector(ids.otherTab));
     expect(await rowsOfPage(url)).toBe(1);
+    // It keeps the other window's tab's slot: nothing jumps.
+    expect(await shownIds()).toEqual(before.map(id => (id === ids.otherTab ? copy : id)));
+    await page.evaluate(id => chrome.tabs.remove(id), later);
+    await page.waitForFunction(sel => !document.querySelector(sel), { polling: 100 }, rowSelector(later));
 
     // Picking it again switches to it here; nothing new opens.
     await page.evaluate(id => chrome.tabs.update(id, { active: true }), ids.own);

@@ -2,6 +2,7 @@ import { spaceForActivation } from '../shared/space-membership.js';
 import { createPinnedFavorites } from './features/pinned-favorites/pinned-favorites.js';
 import {
     ALL_WINDOWS_SETTING,
+    inListedOrder,
     isOtherWindow,
     onePerPage,
     pageTabIds,
@@ -758,7 +759,10 @@ async function getListedTabs(spaceId) {
     const space = spaces.find(s => s.id === spaceId);
     const allWindows = allWindowsSetting.enabled;
     const tabs = await chrome.tabs.query(allWindows ? {} : { windowId: currentWindow.id });
-    return selectListedTabs(space, tabs, currentWindow, allWindows);
+    return {
+        listed: selectListedTabs(space, tabs, currentWindow, allWindows),
+        orderIds: ids => inListedOrder(ids, space, tabs, currentWindow, allWindows)
+    };
 }
 
 function createSpaceElement(space) {
@@ -2652,7 +2656,7 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer) {
     Logger.log('Space bookmarks in space:', space.spaceBookmarks);
     const representedPinnedTabIds = new Set();
     const invertTabOrder = await Utils.getInvertTabOrder();
-    const tabs = await getListedTabs(space.id);
+    const { listed: tabs, orderIds } = await getListedTabs(space.id);
     // A pinned tab binds to its bookmark in its own window only.
     const ownTabs = tabs.filter(t => !isOtherWindow(t, currentWindow.id));
     // Nothing to clear but untouched New Tabs: the button would only archive an empty page.
@@ -2833,8 +2837,10 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer) {
     const tempFragment = document.createDocumentFragment();
     const unrepresentedBookmarkIds = space.spaceBookmarks.filter(id => !representedPinnedTabIds.has(id));
     const fallbackFavoriteIds = treeAvailable ? [] : unrepresentedBookmarkIds;
-    const temporaryTabIds = [...new Set([...space.temporaryTabs, ...unrepresentedBookmarkIds])].filter(
-        id => !fallbackFavoriteIds.includes(id)
+    const temporaryTabIds = orderIds(
+        [...new Set([...space.temporaryTabs, ...unrepresentedBookmarkIds])].filter(
+            id => !fallbackFavoriteIds.includes(id)
+        )
     );
     if (invertTabOrder) temporaryTabIds.reverse();
     const tabsToLoad = [...new Set([...fallbackFavoriteIds, ...temporaryTabIds])];
