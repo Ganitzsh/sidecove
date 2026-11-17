@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **ESLint skips the local `.arc-migration/` folder.** A browser migration backup kept in the project folder made `npm run lint` report about 250,000 errors. You will not notice this in the extension itself.
+
 ## 1.3.1
 
 Your tabs and favorites can now be shown across all your windows, folders can have their own icon, and Move to Space, Clear and next and previous tab in space work more like Arc. There are also a few small fixes to staying in your space and to where links land.
