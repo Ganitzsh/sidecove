@@ -31,3 +31,6 @@ export const SPEAKER_MUTED_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewB
 
 // Shown on hover in a space header that has no icon yet.
 export const SPACE_ICON_PLACEHOLDER = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.2" fill="currentColor"/><circle cx="15" cy="10" r="1.2" fill="currentColor"/><path d="M8.5 14a4 4 0 0 0 7 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+
+// Two panes side by side, for a tab pair in split view (drawn for Sidecove, no attribution needed).
+export const SPLIT_VIEW_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 5v14" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>`;
