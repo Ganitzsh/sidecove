@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **No more browser crash from Google sign-in or a Google Meet call.** With Settings → Sync spaces to Chrome tab groups on, Sidecove put the tab of a "Sign in with Google" popup, or of Meet's floating picture-in-picture window, into a tab group. Those windows have no tab strip, and Brave crashed as soon as you opened a new tab or the sign-in window appeared. Sidecove now only groups tabs in regular browser windows.
 - **A tab from another window keeps its place when you open it here.** With tabs from all windows on, picking such a tab in the panel, or stepping onto it with next and previous tab in space, used to move its entry to the end of the list. It now stays where it was, in the panel and in the shortcut walk.
 - **Clear no longer archives an empty New Tab.** A space with nothing for Clear to close (only favorites and untouched New Tabs) now hides its Clear button, and Clear on a space with real pages leaves untouched New Tabs open instead of filing them under Archived.
 - **Move to Space shows each space's icon in every menu, and is no longer cut off.** The right-click menu of a tab in another window and the menu for several selected tabs now show the space icon like the ordinary menu, and the ordinary menu's space list stays inside a narrow panel.
