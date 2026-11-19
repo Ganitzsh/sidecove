@@ -10,9 +10,11 @@ import {
     visibleWindowTabs
 } from '../shared/all-windows.js';
 import { trackAllWindowsSetting } from './features/all-windows/all-windows-setting.js';
+import { setupNavButtons } from './features/nav-buttons/nav-buttons.js';
 import { markOtherWindowRow } from './features/all-windows/other-window-mark.js';
 import { createOpenHere } from './features/all-windows/open-here.js';
 import { moveToSpaceEntries } from './features/context-menu/space-menu-entries.js';
+import { folderMoveEntries } from './features/context-menu/folder-menu-entries.js';
 import { otherWindowMenuActions, otherWindowMenuEntries } from './features/all-windows/other-window-menu.js';
 import {
     getSpaceBookmarkById,
@@ -46,6 +48,7 @@ import { SpacePatchQueue } from './space-patch-queue.js';
 import { RefreshCoordinator } from './refresh-coordinator.js';
 import { EditSessionRegistry } from './edit-sessions.js';
 import { wireNewTabRow } from './features/new-tab/new-tab-row.js';
+import { wireExternalDrop } from './features/external-drop/external-drop.js';
 import { createSpaceTabShower } from './features/space-switch/show-space-tab.js';
 import {
     selectWindowSpaceTabs,
@@ -56,15 +59,9 @@ import {
 } from './sidebar-tabs.js';
 import { ownerOf } from '../shared/space-store.js';
 import { canCreateFolder, canMoveFolder, createFolder } from './folder-policy.js';
-import {
-    clearTabs,
-    closableTabs,
-    undoClear,
-    reopenClosedTabs,
-    startPendingClean,
-    undoPendingClean
-} from './features/clean-all/clean-all.js';
-import { UNDO_WINDOW_MS, CLOSE_GRACE_MS } from '../shared/pending-clean.js';
+import { closableTabs, reopenClosedTabs, startPendingClean, undoPendingClean } from './features/clean-all/clean-all.js';
+import { cleanSpace } from './features/clean-all/clean-space.js';
+import { drawClosedLinks, watchClosedLinks } from './features/closed-links/closed-link-rows.js';
 import { loadFolderCollapsed, saveFolderCollapsed } from './folder-state.js';
 import { SPEAKER_ICON, SPEAKER_MUTED_ICON, SPACE_ICON_PLACEHOLDER } from './icons.js';
 import { showIconPicker } from './features/icon-picker/icon-picker.js';
@@ -104,6 +101,7 @@ import {
     handleEmptyContainerDrop,
     showUndoToast,
     showMenu,
+    appendMenuEntries,
     copyText,
     showUrlCopyToast
 } from './dom-manager.js';
@@ -112,6 +110,9 @@ import { displayedTabIds } from './features/close-tab/displayed-tabs.js';
 import { restoreAfterPick } from './features/close-tab/restore-after-pick.js';
 import { createClearedTabs } from './features/clean-all/restore-cleared-tab.js';
 import { createTabActivationHandler } from './features/tab-activation/tab-activation.js';
+import { createSplitView } from './features/split-view/split-view.js';
+import { placeNextTo } from './features/split-view/split-logic.js';
+import { markSplitMember, markSplitRows, splitRowsOf } from './features/split-view/split-rows.js';
 import { BookmarkUtils } from '../shared/bookmark-utils.js';
 import { Logger } from '../shared/logger.js';
 import { MOUSE_BUTTON, CSS_CLASSES, TIMING } from '../shared/constants.js';
@@ -434,6 +435,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         closeFocus.trackTab(tab);
         handleTabUpdate(tabId, changeInfo, tab);
+        if (changeInfo.splitViewId !== undefined) scheduleListRedraw(50);
         if (tab.pinned || changeInfo.pinned !== undefined) updatePinnedFavicons(); // Update favicons when a tab is pinned/unpinned
     });
     chrome.tabs.onRemoved.addListener(handleTabRemove);
@@ -508,6 +510,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!request) return;
         event.preventDefault();
         applySpaceRequest(request).catch(error => Logger.error('Could not switch space:', error));
+    });
+
+    wireExternalDrop({
+        root: document.getElementById('sidebar-container'),
+        doc: document,
+        getWindowId: () => currentWindow?.id
     });
 
     document.getElementById('sidebar-container').addEventListener(
@@ -710,6 +718,8 @@ async function initSidebar() {
         if (area !== 'local' || !changes.spaces || !sidebarReady) return;
         scheduleStoredSpacesRefresh();
     });
+    // Links left by a closed window change in the worker; every window's list follows.
+    watchClosedLinks(() => sidebarReady && scheduleListRedraw(100));
     await offerTabGroupImport();
 }
 function scheduleStoredSpacesRefresh() {
@@ -2190,6 +2200,7 @@ async function handleOrderChangeAfterDrop(container) {
         const tempIdsChromeOrder = invertTabOrder ? [...tempIdsDisplayOrder].reverse() : tempIdsDisplayOrder;
         // Preserve any non-rendered temp ids (should be rare), append to end.
         space.temporaryTabs = mergeVisibleOrder(space.temporaryTabs ?? [], tempIdsChromeOrder);
+        splitView.separateTornPairs(splitRowsOf(container));
     } else if (tabType === 'pinned') {
         // DOM order is display order. Canonical storage is extension order.
         const pinnedIdsDisplayOrder = getFlattenedPinnedSectionTabIds(spaceElement);
@@ -2659,6 +2670,13 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer) {
     // A pinned tab binds to its bookmark in its own window only.
     const ownTabs = tabs.filter(t => !isOtherWindow(t, currentWindow.id));
     const pinnedStatesById = await Utils.getPinnedTabStates();
+    // Links a closed window left sit under the list, and Clear clears them too.
+    const closedLinkCount = await drawClosedLinks(tempContainer.closest('.space'), {
+        spaceId: space.id,
+        invertTabOrder,
+        windowId: currentWindow.id,
+        incognito: currentWindow.incognito
+    });
     // Nothing for Clear to close (only favorites and untouched New Tabs): hide the button.
     const clearButton = pinnedContainer.closest('.space')?.querySelector('.clean-tabs-btn');
     if (clearButton) {
@@ -2670,7 +2688,8 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer) {
                 protectedIds: new Set(space.spaceBookmarks),
                 bindings: pinnedStatesById,
                 favoriteUrlKeys
-            }).length;
+            }).length &&
+            !closedLinkCount;
     }
     const pinnedFragment = document.createDocumentFragment();
     let treeAvailable = true;
@@ -2891,6 +2910,7 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer) {
     });
     pinnedContainer.appendChild(pinnedFragment);
     tempContainer.appendChild(tempFragment);
+    if (splitView.supported) markSplitRows(tempContainer, tabId => splitView.separate(tabId));
     const spaceElement = pinnedContainer.closest('.space');
     if (spaceElement) spaceElement.dataset.bookmarkTreeUnavailable = treeAvailable ? 'false' : 'true';
     return true;
@@ -3009,6 +3029,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
         if (tab.bookmarkId) tabElement.dataset.bookmarkId = tab.bookmarkId;
     } else {
         tabElement.dataset.tabId = tab.id;
+        markSplitMember(tabElement, tab);
         // A tab that is still loading has only a pending URL; its update event may already
         // have passed by the time this row exists.
         tabElement.dataset.url = tab.url || tab.pendingUrl || '';
@@ -3463,14 +3484,15 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
             ? null
             : () => tabDetails.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
         // Read the live mute state alongside the space folders so the menu opens no later.
-        const [muted, allBookmarkSpaceFolders] = await Promise.all([
+        const [muted, allBookmarkSpaceFolders, splitEntries] = await Promise.all([
             isBookmarkOnly || !tab.id
                 ? false
                 : chrome.tabs.get(tab.id).then(
                       live => Boolean(live.mutedInfo?.muted),
                       () => false
                   ),
-            otherWindow ? [] : listSpaceFoldersWithIcons()
+            otherWindow ? [] : listSpaceFoldersWithIcons(),
+            otherWindow || isPinned || isBookmarkOnly ? [] : splitView.tabEntries(tab.id)
         ]);
         if (otherWindow) {
             const entries = otherWindowMenuEntries({
@@ -3505,7 +3527,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
             createSpaceFromInactive,
             replaceBookmarkUrlWithCurrentUrl,
             moveFavoriteToSpace,
-            { muted, onRename }
+            { muted, onRename, splitEntries }
         );
     });
 
@@ -3694,6 +3716,12 @@ tabSearchInput.addEventListener('keydown', event => {
     }
 });
 document.getElementById('tabSearchHint').textContent = /Mac/i.test(navigator.platform) ? '⌘F' : 'Ctrl+F';
+setupNavButtons({
+    row: document.getElementById('navRow'),
+    tabs: chrome.tabs,
+    storage: chrome.storage,
+    isMac: /Mac/i.test(navigator.platform)
+});
 
 // --- Multi-select and bulk actions ---
 
@@ -3907,17 +3935,21 @@ async function pinItems(items) {
     });
 }
 
-function showBulkMenu(x, y, elements) {
+async function showBulkMenu(x, y, elements) {
     // Snapshot now: the menu stays open while the rows may re-render.
     const items = elements.map(describeItem);
     const count = items.length;
     const temporary = items.filter(item => item.kind === 'tab' && item.tabId).length;
     const live = items.filter(item => item.tabId).length;
     const plural = n => `${n} ${n === 1 ? 'Tab' : 'Tabs'}`;
+    const splitEntries = items.every(item => item.kind === 'tab' && item.tabId)
+        ? await splitView.bulkEntries(items.map(item => item.tabId))
+        : [];
     showMenu(x, y, [
         { label: `${count} selected`, note: true },
         { label: `New Folder with ${plural(count)}`, action: () => createFolderFromItems(items) },
         ...(temporary ? [{ label: `Pin ${plural(temporary)}`, action: () => pinItems(items) }] : []),
+        ...splitEntries,
         {
             label: 'Move to Space',
             submenu: moveToSpaceEntries({
@@ -4075,57 +4107,34 @@ async function getSpaceFavoriteUrlKeys(space) {
     return keys;
 }
 
-async function cleanTemporaryTabs(spaceId) {
-    Logger.log('Cleaning temporary tabs for space:', spaceId);
-    const space = spaces.find(s => s.id === spaceId);
-    if (!space) return;
-
-    // Only close live tabs owned by this space, protecting favorite bindings.
-    const ownedTabs = await getOwnedTabs(spaceId);
-    const protectedIds = new Set(space.spaceBookmarks);
-    const favoriteUrlKeys = await getSpaceFavoriteUrlKeys(space);
-    const bindings = await Utils.getPinnedTabStates();
-    const closable = closableTabs(ownedTabs, { protectedIds, bindings, favoriteUrlKeys });
-
-    if (!closable.length) return;
-
-    // Clear in display order so Undo shows them the way they were listed.
-    const displayOrder = getTempSectionTabIds(getSpaceElement(spaceId));
-    closable.sort((a, b) => displayOrder.indexOf(a.id) - displayOrder.indexOf(b.id));
-    await pendingSpaceSaves;
-    const cleared = await clearTabs(closable, spaceId, [...space.temporaryTabs], {
+function cleanTemporaryTabs(spaceId) {
+    return cleanSpace(spaceId, {
+        spaces: () => spaces,
+        ownedTabs: getOwnedTabs,
+        favoriteUrlKeys: getSpaceFavoriteUrlKeys,
+        pinnedStates: () => Utils.getPinnedTabStates(),
+        incognito: currentWindow.incognito,
+        windowId: currentWindow.id,
+        tempSectionTabIds: id => getTempSectionTabIds(getSpaceElement(id)),
+        displayedTabIds,
+        pendingSaves: () => pendingSpaceSaves,
+        activeTabId: () => activeChromeTabId,
         addArchivedTab: entry => Utils.addArchivedTab(entry),
         removeArchivedTab: (url, targetSpaceId) => Utils.removeArchivedTab(url, targetSpaceId),
-        activeTabId: activeChromeTabId,
-        displayOrder: displayedTabIds(spaceId),
         openTabIds: async () => (await chrome.tabs.query({ windowId: currentWindow.id })).map(tab => tab.id),
         activateTab: tabId => chrome.tabs.update(tabId, { active: true }),
         openNewTab: () => createNewTab(),
-        startPendingClean
+        startPendingClean,
+        undoPendingClean,
+        clearedTabs,
+        adoptStoredSpaces,
+        showUndoToast,
+        invertTabOrder: () => Utils.getInvertTabOrder(),
+        createTab: props => chrome.tabs.create(props),
+        assignTab: (tabId, targetSpaceId) => spaceRequest('assign', { tabId, spaceId: targetSpaceId }),
+        fetchSpaces: () => spaceRequest('get'),
+        refresh: () => refreshActiveSpaceUI()
     });
-    // The tabs stay open but leave the list at once.
-    clearedTabs.remember(cleared);
-    await adoptStoredSpaces(cleared.spaces);
-
-    // Arc's Clear can be undone, and the tabs also stay in Archived.
-    const count = cleared.records.length;
-    showUndoToast(
-        `Closed ${count} ${count === 1 ? 'tab' : 'tabs'}. They're in Archived.`,
-        async () => {
-            const invertTabOrder = await Utils.getInvertTabOrder();
-            await pendingSpaceSaves;
-            await undoClear(cleared.records, cleared.batchId, currentWindow.id, invertTabOrder, {
-                undoPendingClean,
-                createTab: props => chrome.tabs.create(props),
-                assignTab: (tabId, targetSpaceId) => spaceRequest('assign', { tabId, spaceId: targetSpaceId }),
-                removeArchivedTab: (url, targetSpaceId) => Utils.removeArchivedTab(url, targetSpaceId)
-            });
-            await adoptStoredSpaces(await spaceRequest('get'));
-            await refreshActiveSpaceUI();
-        },
-        // Ends before the worker closes the tabs, however long the round trip and render took.
-        Math.min(UNDO_WINDOW_MS, cleared.closeAt - Date.now() - CLOSE_GRACE_MS / 2)
-    );
 }
 
 async function handleTabCreated(tab) {
@@ -4318,6 +4327,24 @@ const closeFocus = createCloseFocus({
             windowId: currentWindow.id,
             shownSpaceId: activeSpaceId
         }).catch(error => Logger.warn('Could not restore the space after a close:', error))
+});
+
+// Two tabs side by side, using Chrome's own split view where Chrome has it.
+const splitView = createSplitView({
+    chromeApi: chrome,
+    runMutation: runSpaceMutation,
+    listedTabIds: () => getTempSectionTabIds(getSpaceElement(activeSpaceId)),
+    titleOf: tabId => document.querySelector(`.tab[data-tab-id="${tabId}"] .tab-title-display`)?.textContent,
+    placeAfter: async (anchorId, movedId) => {
+        const space = spaces.find(s => s.id === activeSpaceId);
+        if (!space) return;
+        space.temporaryTabs = placeNextTo(space.temporaryTabs, anchorId, movedId);
+        await persistSpaceTabOrder(space.id);
+    },
+    adoptNewTab: async tab => {
+        await spaceRequest('assign', { tabId: tab.id, spaceId: activeSpaceId });
+        await adoptStoredSpaces(await spaceRequest('get'));
+    }
 });
 
 // Tabs Clear is hiding come back one at a time when picked in Chrome's own tab strip.
@@ -4730,6 +4757,22 @@ function setupFolderContextMenu(folderElement, space, item = null) {
                 showFolderIconPicker(folderElement);
             });
             contextMenu.appendChild(iconOption);
+        }
+
+        // The whole folder moves, as when it is dropped on a space chip.
+        if (folderId) {
+            appendMenuEntries(
+                contextMenu,
+                folderMoveEntries({
+                    spaces,
+                    currentSpaceId: spaceElement?.dataset.spaceId,
+                    onMove: async target => {
+                        await moveItemsToSpace([describeItem(folderElement)], target.id);
+                        flashSpaceChip(target.id);
+                    }
+                }),
+                contextMenu
+            );
         }
 
         const deleteOption = document.createElement('div');

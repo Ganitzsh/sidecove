@@ -1609,6 +1609,57 @@ h3 {
     color: rgba(0, 0, 0, 0.8);
 }
 
+/* Split view: the two rows of a pair read as one block, framed on the left. */
+.tab.split-first,
+.tab.split-second {
+    box-shadow: inset 3px 0 0 var(--space-bg-color-dark, rgba(0, 0, 0, 0.35));
+}
+
+.tab.split-first {
+    margin-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.tab.split-second {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+.tab.split-first.active,
+.tab.split-second.active {
+    box-shadow:
+        inset 3px 0 0 var(--space-bg-color-dark, rgba(0, 0, 0, 0.35)),
+        0 1px 2px rgba(0, 0, 0, 0.06),
+        0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.tab-split-separate {
+    width: 24px;
+    height: 24px;
+    flex: none;
+    border: none;
+    background: none;
+    color: rgba(0, 0, 0, 0.55);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    margin-left: 4px;
+    padding: 4px;
+}
+
+.tab-split-separate svg {
+    width: 16px;
+    height: 16px;
+}
+
+.tab-split-separate:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+    color: rgba(0, 0, 0, 0.8);
+}
+
 .tab-close,
 .tab-remove {
     width: 28px;
@@ -2863,6 +2914,19 @@ h3 {
 
     .tab-audio {
         color: rgba(255, 255, 255, 0.7);
+    }
+
+    .tab-split-separate {
+        color: rgba(255, 255, 255, 0.7);
+    }
+
+    .tab-split-separate:hover {
+        background-color: rgba(255, 255, 255, 0.12);
+        color: #fff;
+    }
+
+    .tab.active .tab-split-separate {
+        color: rgba(0, 0, 0, 0.6);
     }
 
     .tab-audio:hover {

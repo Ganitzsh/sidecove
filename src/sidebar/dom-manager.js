@@ -213,7 +213,7 @@ export function showTabContextMenu(
     createSpaceFromInactive,
     onReplaceBookmarkUrlWithCurrent = null,
     moveFavoriteToSpace = null,
-    { muted = false, onRename = null } = {}
+    { muted = false, onRename = null, splitEntries = [] } = {}
 ) {
     // Remove any existing context menus
     const existingMenu = document.getElementById('tab-context-menu');
@@ -278,6 +278,7 @@ export function showTabContextMenu(
             chrome.tabs.update(tab.id, { muted: !muted })
         );
         if (typeof onRename === 'function') addMenuItem(contextMenu, 'Rename Tab', onRename);
+        appendMenuEntries(contextMenu, splitEntries, contextMenu);
     }
 
     // Favorites without an open tab can still share their link.
